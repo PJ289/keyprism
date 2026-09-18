@@ -1,0 +1,17 @@
+{
+  "name": "keyprism",
+  "version": "0.1.0",
+  "description": "Cifra claves de recuperación en cápsulas imprimibles, descifrables offline con una combinación maestra memorizable. 100% local, sin backend.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace=@keyprism/core",
+    "build:web": "npm run build --workspace=@keyprism/web",
+    "dev:web": "npm run dev --workspace=@keyprism/web"
+  }
+}

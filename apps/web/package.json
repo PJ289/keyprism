@@ -1,0 +1,28 @@
+{
+  "name": "@keyprism/web",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:standalone": "vite build --config vite.standalone.config.ts",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test:smoke": "node e2e-smoke.mjs"
+  },
+  "dependencies": {
+    "@keyprism/core": "*",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5",
+    "playwright": "^1.63.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vite-plugin-pwa": "^0.21.1",
+    "vite-plugin-singlefile": "^2.1.0"
+  }
+}

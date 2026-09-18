@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-standalone/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Env
+.env
+.env.local
+
+# Local planning/ops notes — not part of the published project
+BRIEF.md
+STATUS.md
+inbox/
+outbox/
