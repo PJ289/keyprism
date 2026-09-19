@@ -11,7 +11,7 @@ import {
   verifyChecksumDisplay,
 } from "@keyprism/core";
 import { el, clear, stepCard, formField, orDivider } from "../lib/dom.js";
-import { CameraScanner } from "../lib/cameraScanner.js";
+import { CameraScanner, prepareVideoElement } from "../lib/cameraScanner.js";
 import { createStatusMessage } from "../components/statusMessage.js";
 import { decodeAnyPayload } from "../lib/capsuleText.js";
 
@@ -38,8 +38,9 @@ export function renderDecryptView(container: HTMLElement): void {
   let collector = new QrChunkCollector();
 
   const scanStatus = createStatusMessage();
-  const video = el("video", { autoplay: "true", muted: "true", playsinline: "true", class: "scanner-video" });
-  const scannerFrame = el("div", { class: "scanner-frame hidden" });
+  const video = el("video", { class: "scanner-video" }) as HTMLVideoElement;
+  prepareVideoElement(video);
+  const scannerFrame = el("div", { class: "scanner-frame" });
   const scannerWrap = el("div", { class: "scanner-wrap" }, [video, scannerFrame]);
 
   const startBtn = el(
@@ -47,17 +48,19 @@ export function renderDecryptView(container: HTMLElement): void {
     {
       class: "primary",
       onclick: async () => {
+        stopScanning();
         collector = new QrChunkCollector();
+        startBtn.setAttribute("disabled", "");
         scanStatus.set("info", "Solicitando acceso a la cámara...");
         scanner = new CameraScanner(
-          video as HTMLVideoElement,
+          video,
           (text) => {
             try {
               const isNew = collector.add(text);
               if (isNew) {
                 scanStatus.set(
                   "info",
-                  collector.totalExpected
+                  collector.totalExpected && collector.totalExpected > 1
                     ? `Escaneados ${collector.scannedCount} de ${collector.totalExpected}.`
                     : "Código leído."
                 );
@@ -72,12 +75,17 @@ export function renderDecryptView(container: HTMLElement): void {
             }
           },
           (err) => {
-            scanStatus.set("error", `No se pudo acceder a la cámara: ${err.message}`);
+            scanStatus.set("error", err.message);
           }
         );
-        await scanner.start();
-        scannerFrame.classList.remove("hidden");
-        scanStatus.set("info", "Cámara activa — apunta al QR.");
+        const started = await scanner.start();
+        if (started) {
+          scannerWrap.classList.add("is-live");
+          scanStatus.set("info", "Cámara activa — apunta al QR.");
+        } else {
+          scanner = null;
+        }
+        startBtn.removeAttribute("disabled");
       },
     },
     ["📷 Iniciar cámara"]
@@ -86,7 +94,7 @@ export function renderDecryptView(container: HTMLElement): void {
   function stopScanning(): void {
     scanner?.stop();
     scanner = null;
-    scannerFrame.classList.add("hidden");
+    scannerWrap.classList.remove("is-live");
   }
 
   const stopBtn = el(

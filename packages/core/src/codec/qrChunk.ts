@@ -86,7 +86,22 @@ export class QrChunkCollector {
 
   /** Devuelve true si el trozo era nuevo y válido (para dar feedback en UI). */
   add(raw: string): boolean {
-    const parsed = parseQrChunk(raw);
+    // La mayoría de cápsulas caben en un solo QR y se imprimen *sin*
+    // cabecera KP1 (solo se trocea a partir de DEFAULT_CHUNK_SIZE). Si
+    // exigimos la cabecera, el escáner móvil rechaza el caso normal.
+    const cleaned = raw.replace(/[\r\n]/g, "");
+    let parsed: ParsedQrChunk;
+    try {
+      parsed = parseQrChunk(cleaned);
+    } catch (err) {
+      if (!(err instanceof QrChunkError)) throw err;
+      if (this.total !== null && this.total !== 1) {
+        throw new QrChunkError(
+          "Este QR no encaja con los trozos ya escaneados — ¿es de otra cápsula?"
+        );
+      }
+      parsed = { index: 1, total: 1, payload: cleaned };
+    }
     if (this.total === null) {
       this.total = parsed.total;
     } else if (this.total !== parsed.total) {

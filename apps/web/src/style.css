@@ -577,6 +577,7 @@ select:focus-visible {
 /* --- Escáner de cámara --------------------------------------------------- */
 
 .scanner-wrap {
+  display: none;
   position: relative;
   border-radius: var(--radius);
   overflow: hidden;
@@ -584,11 +585,19 @@ select:focus-visible {
   aspect-ratio: 4 / 3;
 }
 
+.scanner-wrap.is-live {
+  display: block;
+}
+
 .scanner-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+  background: #000;
+  /* iOS: fuerza capa compositada; sin esto el <video> de getUserMedia
+   * a veces se queda en negro aunque el stream esté vivo. */
+  transform: translateZ(0);
 }
 
 .scanner-frame {

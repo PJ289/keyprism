@@ -113,6 +113,14 @@ describe("qr chunking", () => {
     expect(collector.assemble()).toBe(payload);
   });
 
+  it("acepta un QR de cápsula sin cabecera KP1 (el caso normal, un solo código)", () => {
+    const payload = base45Encode(randomBytes(80));
+    const collector = new QrChunkCollector();
+    expect(collector.add(payload)).toBe(true);
+    expect(collector.isComplete()).toBe(true);
+    expect(collector.assemble()).toBe(payload);
+  });
+
   it("un solo trozo cuando el payload cabe en el tamaño por defecto", () => {
     const payload = base45Encode(randomBytes(100));
     const chunks = splitIntoQrChunks(payload, DEFAULT_CHUNK_SIZE);
