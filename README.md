@@ -137,6 +137,12 @@ ordenador**, conectando el USB directamente a un móvil:
   completa — funciona porque el archivo es 100% autocontenido, pero es el
   eslabón menos fiable de los cuatro sistemas y debe probarse en el
   iPhone real.
+- **Cámara en el HTML del USB**: un archivo abierto por `file://` no es
+  un contexto seguro — el navegador **no puede** pedir ni otorgar permiso
+  de cámara en vivo (`getUserMedia`). En ese modo Keyprism usa «Hacer foto
+  del QR»: abre la cámara nativa del sistema y lee el código de la imagen,
+  sin permiso a la página. La cámara en vivo solo existe si la PWA se sirve
+  por HTTPS (o localhost).
 - **Recomendación de kit**: pincho USB dual USB-C + USB-A como pieza
   principal, más adaptador OTG y/o Lightning guardados en el mismo sobre
   que las papeletas impresas; copia adicional en microSD si aplica;

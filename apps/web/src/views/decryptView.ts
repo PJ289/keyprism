@@ -12,6 +12,7 @@ import {
 } from "@keyprism/core";
 import { el, clear, stepCard, formField, orDivider } from "../lib/dom.js";
 import { CameraScanner, prepareVideoElement } from "../lib/cameraScanner.js";
+import { decodeQrFromImageFile } from "../lib/scanQrFromImage.js";
 import { createStatusMessage } from "../components/statusMessage.js";
 import { decodeAnyPayload } from "../lib/capsuleText.js";
 
@@ -38,46 +39,46 @@ export function renderDecryptView(container: HTMLElement): void {
   let collector = new QrChunkCollector();
 
   const scanStatus = createStatusMessage();
+  const liveCameraOk = window.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia);
   const video = el("video", { class: "scanner-video" }) as HTMLVideoElement;
   prepareVideoElement(video);
   const scannerFrame = el("div", { class: "scanner-frame" });
   const scannerWrap = el("div", { class: "scanner-wrap" }, [video, scannerFrame]);
 
+  function ingestScannedText(text: string): void {
+    try {
+      if (collector.isComplete()) collector = new QrChunkCollector();
+      const isNew = collector.add(text);
+      if (isNew) {
+        scanStatus.set(
+          "info",
+          collector.totalExpected && collector.totalExpected > 1
+            ? `Escaneados ${collector.scannedCount} de ${collector.totalExpected}.`
+            : "Código leído."
+        );
+      }
+      if (collector.isComplete()) {
+        assembledBytes = decodeQrPayload(collector.assemble());
+        scanStatus.set("success", "¡Cápsula completa! Introduce la combinación y pulsa Descifrar.");
+        stopScanning();
+      }
+    } catch (err) {
+      scanStatus.set("error", friendlyError(err));
+    }
+  }
+
   const startBtn = el(
     "button",
     {
-      class: "primary",
+      class: liveCameraOk ? "primary" : "",
       onclick: async () => {
         stopScanning();
         collector = new QrChunkCollector();
         startBtn.setAttribute("disabled", "");
         scanStatus.set("info", "Solicitando acceso a la cámara...");
-        scanner = new CameraScanner(
-          video,
-          (text) => {
-            try {
-              const isNew = collector.add(text);
-              if (isNew) {
-                scanStatus.set(
-                  "info",
-                  collector.totalExpected && collector.totalExpected > 1
-                    ? `Escaneados ${collector.scannedCount} de ${collector.totalExpected}.`
-                    : "Código leído."
-                );
-              }
-              if (collector.isComplete()) {
-                assembledBytes = decodeQrPayload(collector.assemble());
-                scanStatus.set("success", "¡Cápsula completa! Introduce la combinación y pulsa Descifrar.");
-                stopScanning();
-              }
-            } catch (err) {
-              scanStatus.set("error", friendlyError(err));
-            }
-          },
-          (err) => {
-            scanStatus.set("error", err.message);
-          }
-        );
+        scanner = new CameraScanner(video, ingestScannedText, (err) => {
+          scanStatus.set("error", err.message);
+        });
         const started = await scanner.start();
         if (started) {
           scannerWrap.classList.add("is-live");
@@ -88,7 +89,7 @@ export function renderDecryptView(container: HTMLElement): void {
         startBtn.removeAttribute("disabled");
       },
     },
-    ["📷 Iniciar cámara"]
+    ["📷 Cámara en vivo"]
   );
 
   function stopScanning(): void {
@@ -105,14 +106,82 @@ export function renderDecryptView(container: HTMLElement): void {
         scanStatus.set("info", "Cámara detenida.");
       },
     },
-    ["⏹️ Detener cámara"]
+    ["⏹️ Detener"]
   );
 
-  const scanCard = stepCard(
-    "A",
-    "Escanear QR con la cámara",
-    [scannerWrap, el("div", { class: "actions" }, [startBtn, stopBtn]), scanStatus.element]
+  // getUserMedia no existe en file:// (el navegador no puede otorgar el
+  // permiso a un archivo). La cámara nativa vía <input capture> sí: el
+  // sistema abre su app de fotos y nos devuelve la imagen, sin stream.
+  const photoInput = el("input", {
+    type: "file",
+    accept: "image/*",
+    capture: "environment",
+    class: "hidden",
+    onchange: async (e: Event) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      (e.target as HTMLInputElement).value = "";
+      if (!file) return;
+      scanStatus.set("info", "Leyendo QR de la foto...");
+      try {
+        const text = await decodeQrFromImageFile(file);
+        ingestScannedText(text);
+      } catch (err) {
+        scanStatus.set("error", friendlyError(err));
+      }
+    },
+  }) as HTMLInputElement;
+
+  const galleryInput = el("input", {
+    type: "file",
+    accept: "image/*",
+    class: "hidden",
+    onchange: async (e: Event) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      (e.target as HTMLInputElement).value = "";
+      if (!file) return;
+      scanStatus.set("info", "Leyendo QR de la imagen...");
+      try {
+        const text = await decodeQrFromImageFile(file);
+        ingestScannedText(text);
+      } catch (err) {
+        scanStatus.set("error", friendlyError(err));
+      }
+    },
+  }) as HTMLInputElement;
+
+  const photoBtn = el(
+    "button",
+    {
+      class: liveCameraOk ? "" : "primary",
+      onclick: () => photoInput.click(),
+    },
+    ["📸 Hacer foto del QR"]
   );
+  const galleryBtn = el("button", { onclick: () => galleryInput.click() }, ["🖼️ Elegir imagen"]);
+
+  if (!liveCameraOk) {
+    startBtn.classList.add("hidden");
+    stopBtn.classList.add("hidden");
+    scanStatus.set(
+      "warning",
+      "Estás abriendo Keyprism como archivo. El navegador no puede dar permiso de cámara en vivo a un HTML suelto (hace falta HTTPS). Usa «Hacer foto del QR»: abre la cámara nativa del móvil, sin permiso a esta página."
+    );
+  }
+
+  const scanCard = stepCard("A", "Escanear QR", [
+    liveCameraOk
+      ? el("p", { class: "field-hint" }, [
+          "La cámara en vivo solo funciona si Keyprism se sirve por HTTPS (o localhost). En el HTML del USB usa la foto.",
+        ])
+      : el("p", { class: "field-hint" }, [
+          "Encuadra el QR de cerca (que llene la foto). Si la cápsula tiene varios códigos, dispara uno y luego el siguiente.",
+        ]),
+    scannerWrap,
+    el("div", { class: "actions" }, [startBtn, stopBtn, photoBtn, galleryBtn]),
+    photoInput,
+    galleryInput,
+    scanStatus.element,
+  ]);
 
   // --- Pegar / subir texto ---------------------------------------------------
   const pasteStatus = createStatusMessage();
