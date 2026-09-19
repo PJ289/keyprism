@@ -1,5 +1,8 @@
-// Flujo "Crear cápsula": entrada del secreto, generación/medición de la
-// combinación maestra, y salida imprimible (QR + texto Base32).
+// Flujo "Crear cápsula(s)": una lista de secretos (uno o varios) más,
+// opcionalmente, cápsulas ya cifradas importadas para combinarlas en la
+// misma hoja; una única combinación maestra compartida para los secretos
+// nuevos; y una hoja de impresión con el QR + respaldo de cada cápsula
+// colocados juntos para aprovechar el papel.
 import {
   KDF_PROFILES,
   type KdfProfileName,
@@ -8,80 +11,162 @@ import {
   createCapsule,
   estimateCustomPhraseEntropyBits,
   generateDicewareCombination,
-  splitIntoQrChunks,
-  DEFAULT_CHUNK_SIZE,
 } from "@keyprism/core";
 import { el, clear, stepCard, formField, orDivider } from "../lib/dom.js";
-import { renderQrToCanvas } from "../lib/qrRender.js";
 import { createEntropyMeter } from "../components/entropyMeter.js";
 import { createStatusMessage } from "../components/statusMessage.js";
+import {
+  createImportedBatchItem,
+  createNewBatchItem,
+  type BatchItem,
+  type ImportedBatchItem,
+  type NewBatchItem,
+} from "../components/batchItem.js";
+import { buildPrintSheet } from "../components/printSheet.js";
+import { fromCreatedCapsule, importCapsuleFromText, type PrintableCapsule } from "../lib/printableCapsule.js";
 
 export function renderCreateView(container: HTMLElement): void {
   clear(container);
 
-  let secretBytes: Uint8Array | null = null;
   let combo: MasterCombination | null = null;
   let profile: KdfProfileName = "standard";
+  let nextItemId = 1;
+  const items: BatchItem[] = [];
 
-  const secretStatus = createStatusMessage();
-  const comboBox = el("div", { class: "combo-box hidden" });
   const resultSection = el("section", { class: "card result hidden" });
   const createStatus = createStatusMessage();
   const createBtn = el(
     "button",
     { class: "primary", disabled: true, onclick: () => void handleCreate() },
-    ["🔒 Crear cápsula"]
+    ["🔒 Crear cápsula(s)"]
   );
 
+  function hasNewSecret(): boolean {
+    return items.some((i): i is NewBatchItem => i.kind === "new" && i.secretBytes !== null);
+  }
+  function hasImported(): boolean {
+    return items.some((i) => i.kind === "imported");
+  }
   function updateCreateBtn(): void {
-    createBtn.toggleAttribute("disabled", !(secretBytes && combo));
+    const ready = (hasNewSecret() ? combo !== null : true) && (hasNewSecret() || hasImported());
+    createBtn.toggleAttribute("disabled", !ready);
   }
 
-  // --- Paso 1: secreto + etiqueta -------------------------------------------
-  const textarea = el("textarea", {
-    rows: "5",
-    placeholder:
-      "Pega aquí el secreto: clave de recuperación BitLocker, códigos 2FA, clave privada Passbolt (armored)...",
-    oninput: (e: Event) => {
-      const value = (e.target as HTMLTextAreaElement).value;
-      if (value.length > 0) {
-        secretBytes = new TextEncoder().encode(value);
-        secretStatus.set("success", `Texto cargado (${secretBytes.length} bytes).`);
-        (fileInput as HTMLInputElement).value = "";
-      } else if (!(fileInput as HTMLInputElement).files?.length) {
-        secretBytes = null;
-        secretStatus.clear();
-      }
-      updateCreateBtn();
-    },
+  // --- Paso 1: lista de secretos (uno o varios) + importar existentes -------
+  const itemsHost = el("div", { class: "batch-list" });
+
+  function removeItem(id: number): void {
+    const idx = items.findIndex((i) => i.id === id);
+    if (idx === -1) return;
+    items[idx]!.element.remove();
+    items.splice(idx, 1);
+    updateCreateBtn();
+  }
+
+  function addNewItemRow(): void {
+    const item = createNewBatchItem(nextItemId++, updateCreateBtn, removeItem);
+    items.push(item);
+    itemsHost.append(item.element);
+    updateCreateBtn();
+  }
+
+  function addImportedItem(printable: PrintableCapsule): void {
+    const item: ImportedBatchItem = createImportedBatchItem(nextItemId++, printable, removeItem);
+    items.push(item);
+    itemsHost.append(item.element);
+    updateCreateBtn();
+  }
+
+  let pendingImport: PrintableCapsule | null = null;
+  const importStatus = createStatusMessage();
+
+  function tryDecodeImport(text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      pendingImport = null;
+      importStatus.clear();
+      return;
+    }
+    try {
+      pendingImport = importCapsuleFromText(trimmed);
+      importStatus.set("success", `Código reconocido — etiqueta: "${pendingImport.label || "(sin etiqueta)"}".`);
+    } catch (err) {
+      pendingImport = null;
+      importStatus.set("error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  const importTextarea = el("textarea", {
+    rows: "3",
+    placeholder: "Pega aquí el código (Base32 o Base45) de una cápsula ya creada",
+    oninput: (e: Event) => tryDecodeImport((e.target as HTMLTextAreaElement).value),
   });
 
-  const fileInput = el("input", {
+  const importFileInput = el("input", {
     type: "file",
+    accept: ".txt",
     onchange: async (e: Event) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
-      secretBytes = new Uint8Array(await file.arrayBuffer());
-      secretStatus.set("success", `Archivo "${file.name}" cargado (${secretBytes.length} bytes).`);
-      (textarea as HTMLTextAreaElement).value = "";
-      updateCreateBtn();
+      const text = await file.text();
+      (importTextarea as HTMLTextAreaElement).value = text;
+      tryDecodeImport(text);
     },
   });
 
-  const labelInput = el("input", {
-    type: "text",
-    placeholder: "ej. «BitLocker - Portátil trabajo»",
-  });
+  function resetImportPanel(): void {
+    (importTextarea as HTMLTextAreaElement).value = "";
+    (importFileInput as HTMLInputElement).value = "";
+    pendingImport = null;
+    importStatus.clear();
+  }
 
-  const secretCard = stepCard(1, "Secreto a proteger", [
-    formField("Pega el secreto", textarea),
+  function toggleImportPanel(show: boolean): void {
+    importPanel.classList.toggle("hidden", !show);
+    if (!show) resetImportPanel();
+  }
+
+  const importPanel = el("div", { class: "import-panel hidden" }, [
+    formField(
+      "Código de la cápsula",
+      importTextarea,
+      "No hace falta la combinación maestra para importarla: la etiqueta va sin cifrar."
+    ),
     orDivider(),
-    formField("Sube un archivo en su lugar", fileInput),
-    secretStatus.element,
-    formField("Etiqueta (opcional)", labelInput, "Para reconocer la cápsula de un vistazo entre varias."),
+    formField("O sube un archivo .txt", importFileInput),
+    el("div", { class: "actions" }, [
+      el(
+        "button",
+        {
+          class: "primary",
+          onclick: () => {
+            if (!pendingImport) return;
+            addImportedItem(pendingImport);
+            toggleImportPanel(false);
+          },
+        },
+        ["➕ Añadir a la hoja"]
+      ),
+      el("button", { onclick: () => toggleImportPanel(false) }, ["Cancelar"]),
+    ]),
+    importStatus.element,
   ]);
 
-  // --- Paso 2: combinación maestra ------------------------------------------
+  const secretCard = stepCard(1, "Secretos a proteger", [
+    el("p", { class: "field-hint" }, [
+      "Añade uno o varios secretos — todos se cifrarán con la misma combinación maestra y se imprimirán juntos en la misma hoja. También puedes importar una cápsula ya creada para combinarla sin repetir papel.",
+    ]),
+    itemsHost,
+    el("div", { class: "actions" }, [
+      el("button", { onclick: addNewItemRow }, ["➕ Añadir otro secreto"]),
+      el("button", { onclick: () => toggleImportPanel(true) }, ["📥 Importar cápsula existente"]),
+    ]),
+    importPanel,
+  ]);
+
+  addNewItemRow(); // arranca con una fila vacía, como el flujo de un solo secreto
+
+  // --- Paso 2: combinación maestra (compartida por todo el lote) -----------
   function showCombo(c: MasterCombination): void {
     combo = c;
     clear(comboBox);
@@ -99,11 +184,13 @@ export function renderCreateView(container: HTMLElement): void {
         el("code", {}, [c.checksumDisplay]),
       ]),
       el("p", { class: "status status--warning" }, [
-        "⚠️ Memoriza o guarda esta combinación en un lugar seguro AHORA. No se guarda en ningún sitio — si recargas la página, se pierde.",
+        "⚠️ Memoriza o guarda esta combinación en un lugar seguro AHORA, por separado de las cápsulas impresas. No se guarda en ningún sitio — si recargas la página, se pierde.",
       ])
     );
     updateCreateBtn();
   }
+
+  const comboBox = el("div", { class: "combo-box hidden" });
 
   const generateBtn = el(
     "button",
@@ -121,8 +208,6 @@ export function renderCreateView(container: HTMLElement): void {
     ["🎲 Generar combinación diceware (recomendado)"]
   );
 
-  // Medidor de entropía EN VIVO mientras se escribe la frase propia, antes
-  // de decidir usarla — así se ve al instante si hace falta relleno.
   const livePhraseMeter = createEntropyMeter();
   const customPhraseInput = el("input", {
     type: "text",
@@ -145,6 +230,9 @@ export function renderCreateView(container: HTMLElement): void {
   );
 
   const comboCard = stepCard(2, "Combinación maestra", [
+    el("p", { class: "field-hint" }, [
+      "Una sola combinación para todos los secretos nuevos de esta hoja (cada cápsula lleva además su propia sal aleatoria).",
+    ]),
     generateBtn,
     orDivider(),
     formField("O escribe una frase propia", customPhraseInput),
@@ -169,22 +257,41 @@ export function renderCreateView(container: HTMLElement): void {
   void KDF_PROFILES; // referenciado solo para el <select>; los valores reales viven en core
 
   async function handleCreate(): Promise<void> {
-    if (!secretBytes || !combo) return;
+    const newItems = items.filter(
+      (i): i is NewBatchItem => i.kind === "new" && i.secretBytes !== null
+    );
+    const importedItems = items.filter((i): i is ImportedBatchItem => i.kind === "imported");
+    if (newItems.length === 0 && importedItems.length === 0) return;
+    if (newItems.length > 0 && !combo) return;
+
     createBtn.setAttribute("disabled", "");
-    createStatus.set("info", "Derivando clave (Argon2id)...");
     try {
-      const capsule = await createCapsule({
-        secret: secretBytes,
-        combination: combo.combination,
-        label: (labelInput as HTMLInputElement).value.trim(),
-        profile,
-      });
-      renderResult(capsule);
+      const printables: PrintableCapsule[] = [];
+      for (let i = 0; i < newItems.length; i++) {
+        const item = newItems[i]!;
+        createStatus.set(
+          "info",
+          newItems.length > 1
+            ? `Derivando clave ${i + 1} de ${newItems.length} (Argon2id)...`
+            : "Derivando clave (Argon2id)..."
+        );
+        const created = await createCapsule({
+          secret: item.secretBytes!,
+          combination: combo!.combination,
+          label: item.labelInput.value.trim(),
+          profile,
+        });
+        printables.push(fromCreatedCapsule(created));
+      }
+      for (const item of importedItems) {
+        printables.push(item.printable);
+      }
+      renderResult(printables);
       createStatus.clear();
     } catch (err) {
       createStatus.set(
         "error",
-        `Error al crear la cápsula: ${err instanceof Error ? err.message : String(err)}`
+        `Error al crear la hoja: ${err instanceof Error ? err.message : String(err)}`
       );
     } finally {
       createBtn.removeAttribute("disabled");
@@ -195,48 +302,29 @@ export function renderCreateView(container: HTMLElement): void {
     formField(
       "Perfil Argon2id",
       profileSelect,
-      "Cuanto más alto, más caro se le hace a un atacante probar combinaciones — y algo más lento para ti también."
+      "Cuanto más alto, más caro se le hace a un atacante probar combinaciones — y algo más lento para ti también. Se aplica a los secretos nuevos de esta hoja."
     ),
     createBtn,
     createStatus.element,
   ]);
 
-  function renderResult(capsule: Awaited<ReturnType<typeof createCapsule>>): void {
+  function renderResult(printables: PrintableCapsule[]): void {
     clear(resultSection);
     resultSection.classList.remove("hidden");
-
-    const qrHost = el("div", { class: "qr-grid" });
-    const chunks =
-      capsule.qrPayload.length > DEFAULT_CHUNK_SIZE
-        ? splitIntoQrChunks(capsule.qrPayload)
-        : [capsule.qrPayload];
-
-    chunks.forEach((chunkText, i) => {
-      const canvas = el("canvas", {});
-      void renderQrToCanvas(canvas, chunkText);
-      qrHost.append(
-        el("figure", { class: "qr-item" }, [
-          canvas,
-          el("figcaption", {}, chunks.length > 1 ? [`Parte ${i + 1} de ${chunks.length}`] : ["Escanear con la app"]),
-        ])
-      );
-    });
+    const sheet = buildPrintSheet(printables);
 
     resultSection.append(
       el("div", { class: "card-header" }, [
         el("span", { class: "step-badge step-badge--done" }, ["✓"]),
-        el("h3", { class: "card-title" }, ["Cápsula creada"]),
+        el("h3", { class: "card-title" }, [
+          printables.length > 1 ? `Hoja creada (${printables.length} cápsulas)` : "Cápsula creada",
+        ]),
       ]),
       el("div", { class: "card-body" }, [
         el("p", { class: "status status--warning" }, [
-          "Imprime esta página o guarda el texto de abajo junto a tus otros papeles importantes. Este secreto no queda guardado en ningún sitio.",
+          "Imprime esta página o guarda el texto de cada cápsula junto a tus otros papeles importantes. Ningún secreto queda guardado en ningún sitio — y la combinación maestra NUNCA debe guardarse junto a este papel.",
         ]),
-        el("div", { class: "printable" }, [
-          el("p", {}, [`Etiqueta: ${capsule.data.label || "(sin etiqueta)"}`]),
-          qrHost,
-          el("p", { class: "combo-label" }, ["Respaldo en texto (si no se puede escanear el QR):"]),
-          el("pre", { class: "print-payload" }, [capsule.printPayload]),
-        ]),
+        sheet,
         el("button", { class: "primary", onclick: () => window.print() }, ["🖨️ Imprimir / guardar como PDF"]),
       ])
     );

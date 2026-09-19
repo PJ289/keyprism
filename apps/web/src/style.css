@@ -472,14 +472,106 @@ select:focus-visible {
   color: #0f172a;
 }
 
+/* --- Hoja imprimible ------------------------------------------------------
+ * Estilo "papel" fijo (no depende de las variables del tema oscuro) para
+ * que la vista previa en pantalla ya sea igual a lo que sale impreso. */
+
+.printable {
+  background: #ffffff;
+  color: #0f172a;
+  padding: 1.1rem;
+  border-radius: var(--radius-sm);
+}
+
+.print-sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 1rem;
+}
+
+.print-item {
+  break-inside: avoid;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #d0d5dd;
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+.print-item-label {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #0f172a;
+  word-break: break-word;
+}
+
 .print-payload {
+  width: 100%;
   white-space: pre-wrap;
   word-break: break-all;
-  background: #050b16;
-  border: 1px solid var(--panel-border);
-  padding: 0.7rem;
+  background: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #d0d5dd;
+  padding: 0.6rem;
   border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+}
+
+/* --- Lista de secretos en lote ------------------------------------------ */
+
+.batch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.batch-item {
+  background: var(--panel-elevated);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  animation: fadeIn 0.2s ease;
+}
+
+.batch-item--imported {
+  border-style: dashed;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.batch-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.batch-item-title {
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.icon-btn {
+  min-height: auto;
+  padding: 0.25rem 0.6rem;
   font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.import-panel {
+  background: var(--panel-elevated);
+  border: 1px dashed var(--panel-border);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
 /* --- Escáner de cámara --------------------------------------------------- */
@@ -539,39 +631,28 @@ select:focus-visible {
 
 /* --- Impresión -------------------------------------------------------------- */
 
+/* Aísla lo que se imprime: se oculta TODO por defecto y solo se hace
+ * visible `.printable` y su contenido — así no importa en qué tarjeta o
+ * envoltorio esté anidado (cabeceras, botones, otros pasos del formulario,
+ * etc. quedan fuera aunque no tengan una regla propia). El bug anterior
+ * (denylist por etiqueta: solo ocultaba <button>/<input>/... y dejaba
+ * pasar cualquier <p>/<h2>/<div> suelto) hacía que se imprimiera la
+ * página entera en vez de solo el QR + etiqueta. */
 @media print {
-  .app-header,
-  .tabs,
-  form,
-  button,
-  input,
-  textarea,
-  select,
-  video,
-  .status,
-  .actions,
-  .card-header {
-    display: none !important;
+  body * {
+    visibility: hidden;
   }
-  body {
-    background: white;
-    color: black;
-  }
-  .card {
-    border: none;
-    box-shadow: none;
-    background: transparent;
+  .printable,
+  .printable * {
+    visibility: visible;
   }
   .printable {
-    display: block !important;
-    color: black;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
   }
-  .print-payload {
-    background: white;
-    color: black;
-    border: 1px solid black;
-  }
-  .qr-item canvas {
+  body {
     background: white;
   }
 }

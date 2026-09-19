@@ -6,7 +6,6 @@ import {
   QrChunkCollector,
   QrChunkError,
   WrongCombinationError,
-  decodePrintPayload,
   decodeQrPayload,
   openCapsuleFromBytes,
   verifyChecksumDisplay,
@@ -14,25 +13,9 @@ import {
 import { el, clear, stepCard, formField, orDivider } from "../lib/dom.js";
 import { CameraScanner } from "../lib/cameraScanner.js";
 import { createStatusMessage } from "../components/statusMessage.js";
+import { decodeAnyPayload } from "../lib/capsuleText.js";
 
 const AUTO_CLEAR_MS = 30_000;
-
-function decodeAnyPayload(text: string): Uint8Array {
-  const errors: string[] = [];
-  try {
-    return decodePrintPayload(text);
-  } catch (err) {
-    errors.push(err instanceof Error ? err.message : String(err));
-  }
-  try {
-    return decodeQrPayload(text);
-  } catch (err) {
-    errors.push(err instanceof Error ? err.message : String(err));
-  }
-  throw new Error(
-    "No se reconoce el formato del código (ni Base32 ni Base45). Revisa que esté completo."
-  );
-}
 
 function friendlyError(err: unknown): string {
   if (err instanceof WrongCombinationError) {

@@ -63,6 +63,27 @@ apps/web/        PWA (Vite): flujo de creación, flujo de descifrado
   cabecera de [`packages/core/src/capsule.ts`](packages/core/src/capsule.ts)
   para el layout binario exacto.
 
+### Varios secretos en una misma hoja / importar cápsulas existentes
+
+La vista "Crear" admite una lista de secretos en vez de uno solo: cada uno
+tiene su propia etiqueta y su propia cápsula (salt/nonce propios), pero
+todos comparten la **misma combinación maestra** introducida una vez en el
+paso 2. Al crear, se genera una única hoja imprimible con el QR (o QRs, si
+algún secreto necesita trocearse) y el respaldo en texto de cada cápsula
+colocados en cuadrícula, para aprovechar el papel en vez de imprimir una
+hoja por secreto.
+
+También se puede **importar** una cápsula ya creada (pegando su código o
+subiendo el `.txt` de respaldo) para combinarla en la misma hoja junto a
+secretos nuevos — por ejemplo, si ya tenías impresa la cápsula de
+BitLocker y ahora quieres añadir la de Passbolt en el mismo papel. Importar
+no necesita la combinación maestra: la etiqueta va sin cifrar (autenticada
+como AAD) dentro de la cápsula, así que se puede leer y volver a maquetar
+sin descifrar el secreto. La combinación maestra deliberadamente **no** se
+imprime nunca en la hoja (ni la de las cápsulas nuevas ni, por supuesto, la
+de las importadas) — mezclarla con el papel rompería el modelo de dos
+factores.
+
 ## Desarrollo
 
 ```bash
@@ -89,8 +110,9 @@ requisito de "cero peticiones de red" del export standalone.
 
 ```bash
 cd apps/web
-npm run build && npm run preview -- --port 4173 &   # para e2e-smoke.mjs
-node e2e-smoke.mjs                                   # flujo crear→descifrar
+npm run build && npm run preview -- --port 4173 &   # para e2e-smoke*.mjs
+node e2e-smoke.mjs         # flujo crear→descifrar (un secreto)
+node e2e-smoke-batch.mjs   # lote de varios secretos, importar cápsula, aislamiento de impresión
 
 npm run build:standalone
 node e2e-smoke-file.mjs   # abre dist-standalone/index.html vía file://

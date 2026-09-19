@@ -10,7 +10,8 @@
     "build:standalone": "vite build --config vite.standalone.config.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test:smoke": "node e2e-smoke.mjs"
+    "test:smoke": "node e2e-smoke.mjs",
+    "test:smoke:batch": "node e2e-smoke-batch.mjs"
   },
   "dependencies": {
     "@keyprism/core": "*",
